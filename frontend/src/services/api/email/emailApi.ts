@@ -1,7 +1,7 @@
 // src/services/api/email/emailApi.ts
 import { createApi, fetchBaseQuery, type FetchBaseQueryError } from "@reduxjs/toolkit/query/react";
 import { ApiConstants } from "../../../utils/constants/api_constants";
-import { sendEmailSchema, type SendEmail } from "../../../utils/validation/schema";
+import { type SendEmail } from "../../../utils/validation/schema";
 
 export const emailApi = createApi({
     reducerPath: "emailApi",
