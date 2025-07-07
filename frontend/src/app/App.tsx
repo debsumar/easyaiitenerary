@@ -1,6 +1,6 @@
 // src/app/App.tsx
 import { useEffect } from 'react';
-import { Route, Routes } from 'react-router';
+import { Route, Routes } from 'react-router-dom';
 import TravelPlannerHome from '../pages/travel/TravelPlannerHome';
 import '../styles/App.css';
 import { useAppDispatch, useAppSelector } from './store/hooks';
