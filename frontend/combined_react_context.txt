@@ -1,0 +1,1358 @@
+-- ./src/app/App.tsx --
+// src/app/App.tsx
+import { useEffect } from 'react';
+import { Route, Routes } from 'react-router';
+import TravelPlannerHome from '../pages/travel/TravelPlannerHome';
+import '../styles/App.css';
+import { useAppDispatch, useAppSelector } from './store/hooks';
+import { initializeTheme, selectIsDark } from '../features/theme/themeSlice';
+
+function App() {
+  const dispatch = useAppDispatch();
+  const isDark = useAppSelector(selectIsDark);
+
+  // Initialize theme from localStorage and system preference
+  useEffect(() => {
+    dispatch(initializeTheme());
+  }, [dispatch]);
+
+  // Apply the 'dark' class to the <html> element
+  useEffect(() => {
+    const root = document.documentElement;
+    if (isDark) {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+  }, [isDark]);
+
+  return (
+    <div className="min-h-screen bg-white dark:bg-gray-900 transition-colors duration-200">
+      <Routes>
+        {/* Home route - Travel Planner */}
+        <Route path="/" element={<TravelPlannerHome />} />
+        {/* 404 Route - must be last */}
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </div>
+  );
+}
+
+// Simple 404 component with dark theme support
+const NotFound = () => (
+  <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
+    <div className="text-center">
+      <h1 className="text-6xl font-bold text-gray-900 dark:text-white mb-4 transition-colors duration-200">404</h1>
+      <p className="text-xl text-gray-600 dark:text-gray-300 mb-8 transition-colors duration-200">Page not found</p>
+      <a
+        href="/"
+        className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white px-6 py-3 rounded-lg transition-colors duration-200"
+      >
+        Go Home
+      </a>
+    </div>
+  </div>
+);
+
+export default App;
+
+
+-- ./src/app/main.tsx --
+// src/app/main.tsx
+import ReactDOM from "react-dom/client";
+import App from "./App";
+import '../styles/index.css'
+import '../styles/App.css'
+import { Provider } from "react-redux";
+import { store } from "./store/store";
+import { BrowserRouter } from "react-router";
+
+// Ensure root element exists and is not null
+const rootElement = document.getElementById("root");
+
+if (rootElement) {
+  ReactDOM.createRoot(rootElement).render(
+    <Provider store={store}>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </Provider>
+  );
+} else {
+  throw new Error("Root element not found");
+}
+
+-- ./src/app/store/hooks.ts --
+import { useDispatch, useSelector } from 'react-redux';
+import type { TypedUseSelectorHook } from 'react-redux';
+import type { RootState, AppDispatch } from './store';
+
+// Use throughout your app instead of plain `useDispatch` and `useSelector`
+export const useAppDispatch = () => useDispatch<AppDispatch>();
+export const useAppSelector: TypedUseSelectorHook<RootState> = useSelector;
+
+// Alternative export pattern (you can use either approach)
+export const useTypedDispatch = () => useDispatch<AppDispatch>();
+export const useTypedSelector: TypedUseSelectorHook<RootState> = useSelector;
+
+-- ./src/app/store/store.ts --
+// src/app/store/store.ts
+import { configureStore } from "@reduxjs/toolkit";
+import { setupListeners } from "@reduxjs/toolkit/query";
+import { travelApi } from "../../services/api/travel/travelApi";
+import themeReducer from "../../features/theme/themeSlice";
+import { emailApi } from "../../services/api/email/emailApi"; // Import the new email API
+
+export const store = configureStore({
+    reducer: {
+        [travelApi.reducerPath]: travelApi.reducer, // Add travel API reducer
+        [emailApi.reducerPath]: emailApi.reducer, // Add email API reducer
+        theme: themeReducer, // Add theme reducer
+    },
+    middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware().concat(
+            travelApi.middleware, // Add travel API middleware
+            emailApi.middleware // Add email API middleware
+        ),
+});
+
+// Optional: For refetchOnFocus/refetchOnReconnect
+setupListeners(store.dispatch);
+
+// Inferred types for app-wide usage
+export type RootState = ReturnType<typeof store.getState>;
+export type AppDispatch = typeof store.dispatch;
+
+
+-- ./src/features/auth/authSlice.ts --
+
+
+-- ./src/features/theme/themeSlice.ts --
+// src/features/theme/themeSlice.ts
+import { createSlice } from '@reduxjs/toolkit';
+import type { PayloadAction } from '@reduxjs/toolkit';
+import type { RootState } from '../../app/store/store';
+
+export type ThemeMode = 'light' | 'dark' | 'system';
+
+interface ThemeState {
+    mode: ThemeMode;
+    isDark: boolean;
+    systemPreference: 'light' | 'dark';
+    isInitialized: boolean;
+}
+
+// Initial state - will be properly set when component mounts
+const initialState: ThemeState = {
+    mode: 'system',
+    isDark: false,
+    systemPreference: 'light',
+    isInitialized: false
+};
+
+// Helper function to calculate isDark
+const calculateIsDark = (mode: ThemeMode, systemPreference: 'light' | 'dark'): boolean => {
+    switch (mode) {
+        case 'dark':
+            return true;
+        case 'light':
+            return false;
+        case 'system':
+            return systemPreference === 'dark';
+        default:
+            return false;
+    }
+};
+
+// Helper function to get system preference
+const getSystemPreference = (): 'light' | 'dark' => {
+    if (typeof window !== 'undefined' && window.matchMedia) {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    return 'light';
+};
+
+// Helper function to get saved theme
+const getSavedTheme = (): ThemeMode => {
+    if (typeof window !== 'undefined') {
+        const saved = localStorage.getItem('theme');
+        if (saved === 'light' || saved === 'dark' || saved === 'system') {
+            return saved;
+        }
+    }
+    return 'system';
+};
+
+const themeSlice = createSlice({
+    name: 'theme',
+    initialState,
+    reducers: {
+        initializeTheme: (state) => {
+            console.log('🎨 Initializing theme...');
+
+            // Get current values
+            const systemPreference = getSystemPreference();
+            const savedMode = getSavedTheme();
+            const isDark = calculateIsDark(savedMode, systemPreference);
+
+            console.log('🎨 Theme init values:', { savedMode, systemPreference, isDark });
+
+            // Update state
+            state.mode = savedMode;
+            state.systemPreference = systemPreference;
+            state.isDark = isDark;
+            state.isInitialized = true;
+
+            console.log('🎨 Theme initialized:', state);
+        },
+
+        setThemeMode: (state, action: PayloadAction<ThemeMode>) => {
+            console.log('🎨 Setting theme mode to:', action.payload);
+
+            state.mode = action.payload;
+            state.isDark = calculateIsDark(action.payload, state.systemPreference);
+
+            // Save to localStorage
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('theme', action.payload);
+                console.log('🎨 Saved to localStorage:', action.payload);
+            }
+
+            console.log('🎨 New theme state:', { mode: state.mode, isDark: state.isDark });
+        },
+
+        toggleTheme: (state) => {
+            console.log('🎨 Toggling theme from:', state.mode, 'isDark:', state.isDark);
+
+            // Simple toggle between light and dark
+            const newMode: ThemeMode = state.isDark ? 'light' : 'dark';
+
+            state.mode = newMode;
+            state.isDark = !state.isDark; // Correctly toggle the isDark state
+
+            // Save to localStorage
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('theme', newMode);
+                console.log('🎨 Toggled and saved to localStorage:', newMode);
+            }
+
+            console.log('🎨 After toggle:', { mode: state.mode, isDark: state.isDark });
+        },
+
+        setSystemPreference: (state, action: PayloadAction<'light' | 'dark'>) => {
+            console.log('🎨 System preference changed to:', action.payload);
+
+            state.systemPreference = action.payload;
+
+            // Recalculate isDark only if in system mode
+            if (state.mode === 'system') {
+                const newIsDark = action.payload === 'dark';
+                console.log('🎨 Updating isDark due to system change:', newIsDark);
+                state.isDark = newIsDark;
+            }
+        },
+    },
+});
+
+export const { initializeTheme, setThemeMode, toggleTheme, setSystemPreference } = themeSlice.actions;
+export default themeSlice.reducer;
+
+// Selectors
+export const selectThemeMode = (state: RootState) => state.theme.mode;
+export const selectIsDark = (state: RootState) => state.theme.isDark;
+export const selectSystemPreference = (state: RootState) => state.theme.systemPreference;
+export const selectIsInitialized = (state: RootState) => state.theme.isInitialized;
+
+-- ./src/utils/constants/api_constants.ts --
+export class ApiConstants {
+    static readonly DUMMY_JSON_BASE_URL = "https://dummyjson.com";
+    static readonly TRAVEL_API_BASE_URL = "https://04aa-152-52-60-98.ngrok-free.app/";
+    static readonly TRAVEL_QUERY_ENDPOINT = "/query";
+    static readonly SEND_EMAIL_ENDPOINT = "/send-email";
+}
+
+-- ./src/utils/constants/app_constants.ts --
+// Default example questions for the travel planner
+export const EXAMPLE_TRAVEL_QUESTIONS = [
+    "Plan a 3-day trip to Pattaya with a budget",
+    "Plan a 5-day trip to Paris with a budget",
+    "Show me a budget-friendly plan for Bangkok",
+    "Plan a family vacation in Tokyo for 7 days",
+    "Create an adventure trip to New Zealand",
+    "Plan a romantic getaway to Santorini",
+    "Show me an off-beat plan for Pattaya",
+    "Plan a backpacking trip through Southeast Asia"
+];
+
+// Travel plan section types - using const object instead of enum
+export const TravelSectionType = {
+    ITINERARY: 'itinerary',
+    HOTELS: 'hotels',
+    RESTAURANTS: 'restaurants',
+    ACTIVITIES: 'activities',
+    TRANSPORTATION: 'transportation',
+    BUDGET: 'budget',
+    WEATHER: 'weather',
+    ATTRACTIONS: 'attractions'
+} as const;
+
+// Type for the section values
+export type TravelSectionTypeValue = typeof TravelSectionType[keyof typeof TravelSectionType];
+
+// Helper function to get section type from title
+export const getSectionType = (title: string): TravelSectionTypeValue => {
+    const lowerTitle = title.toLowerCase();
+
+    if (lowerTitle.includes('hotel')) return TravelSectionType.HOTELS;
+    if (lowerTitle.includes('restaurant') || lowerTitle.includes('food')) return TravelSectionType.RESTAURANTS;
+    if (lowerTitle.includes('cost') || lowerTitle.includes('budget')) return TravelSectionType.BUDGET;
+    if (lowerTitle.includes('transport')) return TravelSectionType.TRANSPORTATION;
+    if (lowerTitle.includes('attraction') || lowerTitle.includes('places')) return TravelSectionType.ATTRACTIONS;
+    if (lowerTitle.includes('weather')) return TravelSectionType.WEATHER;
+    if (lowerTitle.includes('activit')) return TravelSectionType.ACTIVITIES;
+
+    return TravelSectionType.ITINERARY; // default
+};
+
+-- ./src/utils/validation/schema.ts --
+// src/utils/validation/schemas.ts
+import { z } from 'zod';
+
+// Travel API Schemas
+export const travelQuerySchema = z.object({
+    question: z.string()
+        .min(10, 'Please provide more details about your travel plans (at least 10 characters)')
+        .max(500, 'Please keep your question under 500 characters')
+        .refine(
+            (val) => val.toLowerCase().includes('trip') ||
+                val.toLowerCase().includes('travel') ||
+                val.toLowerCase().includes('vacation') ||
+                val.toLowerCase().includes('plan') ||
+                val.toLowerCase().includes('visit'),
+            'Please include travel-related keywords in your question'
+        )
+});
+
+export const travelResponseSchema = z.object({
+    answer: z.string().min(1, 'Response cannot be empty')
+});
+
+// Counter State Schema
+export const counterStateSchema = z.object({
+    value: z.number().int('Counter value must be an integer')
+});
+
+// API Constants Schema
+export const apiConstantsSchema = z.object({
+    DUMMY_JSON_BASE_URL: z.string().url('Invalid dummy JSON base URL'),
+    TRAVEL_API_BASE_URL: z.string().url('Invalid travel API base URL'),
+    TRAVEL_QUERY_ENDPOINT: z.string().startsWith('/', 'Endpoint must start with /')
+});
+
+// Form Validation Schemas
+export const travelFormSchema = z.object({
+    destination: z.string().optional(),
+    budget: z.number().positive('Budget must be positive').optional(),
+    duration: z.number().positive('Duration must be positive').optional(),
+    travelType: z.enum(['leisure', 'business', 'adventure', 'romantic', 'family']).optional(),
+    question: travelQuerySchema.shape.question
+});
+
+// Environment Variables Schema
+export const envSchema = z.object({
+    NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+    VITE_API_BASE_URL: z.string().url().optional(),
+    VITE_TRAVEL_API_URL: z.string().url().optional()
+});
+
+// Types derived from schemas
+export type TravelQuery = z.infer<typeof travelQuerySchema>;
+export type TravelResponse = z.infer<typeof travelResponseSchema>;
+export type CounterState = z.infer<typeof counterStateSchema>;
+export type TravelForm = z.infer<typeof travelFormSchema>;
+export type SendEmail = z.infer<typeof sendEmailSchema>;
+export const sendEmailSchema = z.object({
+  email: z.array(z.string().email('Invalid email address')),
+  subject: z.string().min(1, 'Subject cannot be empty'),
+  body: z.string().min(1, 'Body cannot be empty'),
+});
+
+
+// Validation helper functions
+export const validateApiConstants = (constants: unknown) => {
+    return apiConstantsSchema.safeParse(constants);
+};
+
+export const validateTravelQuery = (query: unknown) => {
+    return travelQuerySchema.safeParse(query);
+};
+
+export const validateTravelResponse = (response: unknown) => {
+    return travelResponseSchema.safeParse(response);
+};
+
+export const validateCounterState = (state: unknown) => {
+    return counterStateSchema.safeParse(state);
+};
+
+export const validateTravelForm = (form: unknown) => {
+    return travelFormSchema.safeParse(form);
+};
+
+export const validateSendEmail = (data: unknown) => {
+    return sendEmailSchema.safeParse(data);
+};
+
+-- ./src/postcss.config.ts --
+const config = {
+    plugins: {
+        tailwindcss: {},
+        autoprefixer: {},
+    },
+}
+
+export default config
+
+-- ./src/styles/App.css --
+/* #root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+} */
+
+#root {
+  width: 100%;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+
+
+-- ./src/styles/index.css --
+@import "tailwindcss";
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+/* Set color scheme for proper browser rendering */
+html {
+  color-scheme: light dark;
+}
+
+/* Smooth scrolling */
+* {
+  scroll-behavior: smooth;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgb(243 244 246);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(156 163 175);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(107 114 128);
+}
+
+/* Dark mode scrollbar styling */
+.dark ::-webkit-scrollbar-track {
+  background: rgb(31 41 55);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgb(75 85 99);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgb(107 114 128);
+}
+
+/* Firefox scrollbar support */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(156 163 175) rgb(243 244 246);
+}
+
+.dark html {
+  scrollbar-color: rgb(75 85 99) rgb(31 41 55);
+}
+
+/* Focus styles that work with both themes */
+.focus-visible:focus-visible {
+  outline: 2px solid rgb(99 102 241);
+  outline-offset: 2px;
+}
+
+.dark .focus-visible:focus-visible {
+  outline-color: rgb(129 140 248);
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto;
+  }
+}
+
+-- ./src/components/ui/Loaders.tsx --
+// src/components/ui/Loaders.tsx
+import React from 'react';
+import { MapPin, Plane, Calendar } from 'lucide-react';
+
+// Simple spinner loader
+export const Spinner: React.FC<{ size?: 'sm' | 'md' | 'lg'; color?: string }> = ({
+    size = 'md',
+    color = 'text-indigo-600 dark:text-indigo-400'
+}) => {
+    const sizeClasses = {
+        sm: 'w-4 h-4',
+        md: 'w-8 h-8',
+        lg: 'w-12 h-12'
+    };
+
+    return (
+        <div className={`${sizeClasses[size]} ${color} animate-spin theme-transition`}>
+            <div className="w-full h-full border-2 border-current border-t-transparent rounded-full"></div>
+        </div>
+    );
+};
+
+// Travel planning specific loader
+export const TravelPlanningLoader: React.FC = () => {
+    return (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-12 text-center border border-gray-100 dark:border-gray-700 theme-transition">
+            <div className="flex justify-center space-x-4 mb-6">
+                <div className="animate-bounce" style={{ animationDelay: '0ms' }}>
+                    <MapPin className="w-8 h-8 text-indigo-600 dark:text-indigo-400 theme-transition" />
+                </div>
+                <div className="animate-bounce" style={{ animationDelay: '150ms' }}>
+                    <Plane className="w-8 h-8 text-blue-600 dark:text-blue-400 theme-transition" />
+                </div>
+                <div className="animate-bounce" style={{ animationDelay: '300ms' }}>
+                    <Calendar className="w-8 h-8 text-green-600 dark:text-green-400 theme-transition" />
+                </div>
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2 theme-transition">Creating Your Perfect Trip</h3>
+            <p className="text-gray-600 dark:text-gray-300 mb-4 theme-transition">Our AI is analyzing destinations, costs, and creating your personalized itinerary...</p>
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 theme-transition">
+                <div className="bg-indigo-600 dark:bg-indigo-400 h-2 rounded-full animate-pulse theme-transition" style={{ width: '70%' }}></div>
+            </div>
+        </div>
+    );
+};
+
+// Skeleton loader for travel plans
+export const TravelPlanSkeleton: React.FC = () => {
+    return (
+        <div className="space-y-6">
+            {[1, 2, 3].map((item) => (
+                <div key={item} className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700 theme-transition">
+                    <div className="flex items-center space-x-3 mb-4">
+                        <div className="w-10 h-10 bg-gray-200 dark:bg-gray-600 rounded-lg animate-pulse theme-transition"></div>
+                        <div className="h-6 bg-gray-200 dark:bg-gray-600 rounded w-1/3 animate-pulse theme-transition"></div>
+                    </div>
+                    <div className="space-y-2">
+                        <div className="h-4 bg-gray-200 dark:bg-gray-600 rounded w-full animate-pulse theme-transition"></div>
+                        <div className="h-4 bg-gray-200 dark:bg-gray-600 rounded w-5/6 animate-pulse theme-transition"></div>
+                        <div className="h-4 bg-gray-200 dark:bg-gray-600 rounded w-4/6 animate-pulse theme-transition"></div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+// Generic loading overlay
+export const LoadingOverlay: React.FC<{ message?: string }> = ({
+    message = 'Loading...'
+}) => {
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-black dark:bg-opacity-70 flex items-center justify-center z-50 theme-transition">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-8 max-w-sm mx-4 text-center border border-gray-200 dark:border-gray-700 theme-transition">
+                <Spinner size="lg" />
+                <p className="mt-4 text-gray-700 dark:text-gray-300 font-medium theme-transition">{message}</p>
+            </div>
+        </div>
+    );
+};
+
+// Theme-aware pulse loader
+export const ThemeAwarePulse: React.FC<{ className?: string }> = ({ className = '' }) => {
+    return (
+        <div className={`animate-pulse ${className}`}>
+            <div className="bg-gray-200 dark:bg-gray-600 rounded theme-transition"></div>
+        </div>
+    );
+};
+
+// Progress bar with theme support
+export const ProgressBar: React.FC<{
+    progress: number;
+    className?: string;
+    showPercentage?: boolean;
+}> = ({
+    progress,
+    className = '',
+    showPercentage = false
+}) => {
+        const clampedProgress = Math.min(Math.max(progress, 0), 100);
+
+        return (
+            <div className={`w-full ${className}`}>
+                <div className="flex justify-between items-center mb-1">
+                    {showPercentage && (
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300 theme-transition">
+                            {Math.round(clampedProgress)}%
+                        </span>
+                    )}
+                </div>
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 theme-transition">
+                    <div
+                        className="bg-indigo-600 dark:bg-indigo-400 h-2 rounded-full transition-all duration-500 ease-out theme-transition"
+                        style={{ width: `${clampedProgress}%` }}
+                    ></div>
+                </div>
+            </div>
+        );
+    };
+
+export default {
+    Spinner,
+    TravelPlanningLoader,
+    TravelPlanSkeleton,
+    LoadingOverlay,
+    ThemeAwarePulse,
+    ProgressBar
+};
+
+-- ./src/components/ui/ThemeToggle.tsx --
+// src/components/ui/ThemeToggle.tsx
+import React from 'react';
+import { Sun, Moon } from 'lucide-react';
+import { useAppDispatch, useAppSelector } from '../../app/store/hooks';
+import { selectIsDark, toggleTheme } from '../../features/theme/themeSlice';
+
+interface ThemeToggleProps {
+    size?: 'sm' | 'md' | 'lg';
+}
+
+const ThemeToggle: React.FC<ThemeToggleProps> = ({ size = 'md' }) => {
+    const dispatch = useAppDispatch();
+    const isDark = useAppSelector(selectIsDark);
+
+    const handleToggle = () => {
+        dispatch(toggleTheme());
+    };
+
+    const sizeClasses = {
+        sm: 'w-8 h-8',
+        md: 'w-10 h-10',
+        lg: 'w-12 h-12'
+    };
+
+    const iconSizes = {
+        sm: 'w-4 h-4',
+        md: 'w-5 h-5',
+        lg: 'w-6 h-6'
+    };
+
+    return (
+        <button
+            onClick={handleToggle}
+            className={`
+        ${sizeClasses[size]} 
+        flex items-center justify-center
+        bg-gray-100 hover:bg-gray-200 
+        dark:bg-gray-800 dark:hover:bg-gray-700
+        rounded-lg transition-all duration-200
+        focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2
+        dark:focus:ring-offset-gray-900
+      `}
+            aria-label={`Switch to ${isDark ? 'light' : 'dark'} theme`}
+            title={`Switch to ${isDark ? 'light' : 'dark'} theme`}
+        >
+            {isDark ? (
+                <Sun className={`${iconSizes[size]} text-yellow-500`} />
+            ) : (
+                <Moon className={`${iconSizes[size]} text-gray-600 dark:text-gray-300`} />
+            )}
+        </button>
+    );
+};
+
+export default ThemeToggle;
+
+
+-- ./src/vite-env.d.ts --
+/// <reference types="vite/client" />
+
+
+-- ./src/pages/home/HomeScreen.tsx --
+
+
+-- ./src/pages/travel/TravelPlanDisplay.tsx --
+// src/pages/travel/TravelPlanDisplay.tsx
+import React from 'react';
+import { ArrowLeft, MapPin, Calendar, DollarSign, Hotel, Utensils, Car, Camera, Sun, Activity } from 'lucide-react';
+import { TravelSectionType, getSectionType, type TravelSectionTypeValue } from '../../utils/constants/app_constants';
+import type { TravelResponse } from '../../utils/validation/schema';
+
+interface TravelPlanDisplayProps {
+    data: TravelResponse;
+    onNewSearch: () => void;
+}
+
+interface SectionIconConfig {
+    icon: React.ReactNode;
+    bgColor: string;
+    iconColor: string;
+    darkBgColor: string;
+    darkIconColor: string;
+}
+
+const TravelPlanDisplay: React.FC<TravelPlanDisplayProps> = ({ data, onNewSearch }) => {
+    // Parse the markdown-like content into sections
+    const parseContent = (content: string): string[] => {
+        const sections = content.split('---').filter(section => section.trim());
+        return sections.map(section => section.trim());
+    };
+
+    const parseTableContent = (content: string): { headers: string[]; rows: string[][] } | null => {
+        const lines = content.split('\n').filter(line => line.trim());
+        const tableLines = lines.filter(line => line.includes('|'));
+
+        if (tableLines.length < 2) return null;
+
+        const headers = tableLines[0].split('|').map(h => h.trim()).filter(h => h);
+        const rows = tableLines.slice(2).map(row =>
+            row.split('|').map(cell => cell.trim()).filter(cell => cell)
+        );
+
+        return { headers, rows };
+    };
+
+    // Get section configuration based on type - using constants from app_constants.ts
+    const getSectionConfig = (title: string): SectionIconConfig => {
+        const sectionType = getSectionType(title);
+
+        const configs: Record<TravelSectionTypeValue, SectionIconConfig> = {
+            [TravelSectionType.ITINERARY]: {
+                icon: <Calendar className="w-6 h-6" />,
+                bgColor: "bg-blue-50",
+                iconColor: "text-blue-600",
+                darkBgColor: "dark:bg-blue-900/20",
+                darkIconColor: "dark:text-blue-400"
+            },
+            [TravelSectionType.HOTELS]: {
+                icon: <Hotel className="w-6 h-6" />,
+                bgColor: "bg-purple-50",
+                iconColor: "text-purple-600",
+                darkBgColor: "dark:bg-purple-900/20",
+                darkIconColor: "dark:text-purple-400"
+            },
+            [TravelSectionType.RESTAURANTS]: {
+                icon: <Utensils className="w-6 h-6" />,
+                bgColor: "bg-green-50",
+                iconColor: "text-green-600",
+                darkBgColor: "dark:bg-green-900/20",
+                darkIconColor: "dark:text-green-400"
+            },
+            [TravelSectionType.BUDGET]: {
+                icon: <DollarSign className="w-6 h-6" />,
+                bgColor: "bg-yellow-50",
+                iconColor: "text-yellow-600",
+                darkBgColor: "dark:bg-yellow-900/20",
+                darkIconColor: "dark:text-yellow-400"
+            },
+            [TravelSectionType.TRANSPORTATION]: {
+                icon: <Car className="w-6 h-6" />,
+                bgColor: "bg-indigo-50",
+                iconColor: "text-indigo-600",
+                darkBgColor: "dark:bg-indigo-900/20",
+                darkIconColor: "dark:text-indigo-400"
+            },
+            [TravelSectionType.ATTRACTIONS]: {
+                icon: <Camera className="w-6 h-6" />,
+                bgColor: "bg-red-50",
+                iconColor: "text-red-600",
+                darkBgColor: "dark:bg-red-900/20",
+                darkIconColor: "dark:text-red-400"
+            },
+            [TravelSectionType.WEATHER]: {
+                icon: <Sun className="w-6 h-6" />,
+                bgColor: "bg-orange-50",
+                iconColor: "text-orange-600",
+                darkBgColor: "dark:bg-orange-900/20",
+                darkIconColor: "dark:text-orange-400"
+            },
+            [TravelSectionType.ACTIVITIES]: {
+                icon: <Activity className="w-6 h-6" />,
+                bgColor: "bg-pink-50",
+                iconColor: "text-pink-600",
+                darkBgColor: "dark:bg-pink-900/20",
+                darkIconColor: "dark:text-pink-400"
+            }
+        };
+
+        return configs[sectionType];
+    };
+
+    const renderSection = (section: string, index: number) => {
+        const lines = section.split('\n').filter(line => line.trim());
+        if (lines.length === 0) return null;
+
+        const title = lines[0].replace(/#+\s*\*?\*?/, '').trim();
+        const content = lines.slice(1).join('\n');
+
+        // Get section configuration using constants
+        const { icon, bgColor, iconColor, darkBgColor, darkIconColor } = getSectionConfig(title);
+
+        // Check if content contains a table
+        const tableData = parseTableContent(content);
+
+        return (
+            <div key={index} className={`${bgColor} ${darkBgColor} rounded-xl p-6 border border-gray-100 dark:border-gray-700 shadow-sm transition-colors duration-200`}>
+                <div className="flex items-center space-x-3 mb-4">
+                    <div className={`${iconColor} ${darkIconColor} ${bgColor} ${darkBgColor} p-2 rounded-lg transition-colors duration-200`}>
+                        {icon}
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white transition-colors duration-200">{title}</h3>
+                </div>
+
+                {tableData ? (
+                    <div className="overflow-x-auto">
+                        <table className="w-full bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-sm border border-gray-100 dark:border-gray-700 transition-colors duration-200">
+                            <thead className="bg-gray-50 dark:bg-gray-700">
+                                <tr>
+                                    {tableData.headers.map((header, i) => (
+                                        <th key={i} className="px-4 py-3 text-left text-sm font-semibold text-gray-900 dark:text-white transition-colors duration-200">
+                                            {header}
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
+                                {tableData.rows.map((row, i) => (
+                                    <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                                        {row.map((cell, j) => (
+                                            <td key={j} className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 transition-colors duration-200">
+                                                {cell}
+                                            </td>
+                                        ))}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm border border-gray-100 dark:border-gray-700 transition-colors duration-200">
+                        {content.split('\n').map((line, i) => {
+                            const trimmedLine = line.trim();
+
+                            if (trimmedLine.startsWith('- ')) {
+                                return (
+                                    <div key={i} className="flex items-start space-x-2 mb-2">
+                                        <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full mt-2 flex-shrink-0 transition-colors duration-200"></div>
+                                        <p className="text-gray-700 dark:text-gray-300 transition-colors duration-200">{trimmedLine.replace('- ', '')}</p>
+                                    </div>
+                                );
+                            } else if (trimmedLine.match(/^\d+\./)) {
+                                const number = trimmedLine.match(/^\d+/)?.[0];
+                                const text = trimmedLine.replace(/^\d+\.\s*/, '');
+                                return (
+                                    <div key={i} className="flex items-start space-x-3 mb-3">
+                                        <div className="bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 text-sm font-semibold px-2 py-1 rounded-full min-w-[24px] text-center transition-colors duration-200">
+                                            {number}
+                                        </div>
+                                        <p className="text-gray-700 dark:text-gray-300 flex-1 transition-colors duration-200">{text}</p>
+                                    </div>
+                                );
+                            } else if (trimmedLine) {
+                                return (
+                                    <p key={i} className="text-gray-700 dark:text-gray-300 mb-2 leading-relaxed transition-colors duration-200">
+                                        {trimmedLine}
+                                    </p>
+                                );
+                            }
+                            return null;
+                        })}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const sections = parseContent(data.answer);
+
+    return (
+        <div className="space-y-8">
+            {/* Header with back button */}
+            <div className="flex items-center justify-between">
+                <button
+                    onClick={onNewSearch}
+                    className="flex items-center space-x-2 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 rounded-lg px-3 py-2 duration-200"
+                    aria-label="Plan another trip"
+                >
+                    <ArrowLeft className="w-5 h-5" />
+                    <span className="font-medium">Plan Another Trip</span>
+                </button>
+
+                <div className="flex items-center space-x-2 text-gray-600 dark:text-gray-300 transition-colors duration-200">
+                    <MapPin className="w-5 h-5" />
+                    <span className="font-medium">Your Personalized Travel Plan</span>
+                </div>
+            </div>
+
+            {/* Travel Plan Content */}
+            <div className="space-y-6">
+                {sections.length > 0 ? (
+                    sections.map((section, index) => renderSection(section, index))
+                ) : (
+                    <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-200 dark:border-gray-700 transition-colors duration-200">
+                        <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4 transition-colors duration-200">
+                            <MapPin className="w-8 h-8 text-gray-400 dark:text-gray-500" />
+                        </div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2 transition-colors duration-200">No Travel Plan Found</h3>
+                        <p className="text-gray-600 dark:text-gray-300 mb-4 transition-colors duration-200">We couldn't parse your travel plan. Please try generating a new one.</p>
+                        <button
+                            onClick={onNewSearch}
+                            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white rounded-lg transition-colors duration-200"
+                        >
+                            Generate New Plan
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700 transition-colors duration-200">
+                <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                    <button
+                        className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white rounded-lg transition-colors font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 duration-200"
+                        aria-label="Save this travel plan"
+                    >
+                        Save This Plan
+                    </button>
+                    <button
+                        className="px-6 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors font-medium focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 duration-200"
+                        aria-label="Share this travel plan"
+                    >
+                        Share Plan
+                    </button>
+                    <button
+                        onClick={onNewSearch}
+                        className="px-6 py-3 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors font-medium focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 duration-200"
+                        aria-label="Create a new travel plan"
+                    >
+                        Create New Plan
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default TravelPlanDisplay;
+
+-- ./src/pages/travel/TravelPlannerHome.tsx --
+// src/pages/travel/TravelPlannerHome.tsx
+import React, { useState, useEffect } from 'react';
+import { Send, MapPin, ArrowRight, AlertCircle, Mail } from 'lucide-react';
+import { useGetTravelPlanMutation } from '../../services/api/travel/travelApi';
+import { useSendEmailMutation } from '../../services/api/email/emailApi';
+import { EXAMPLE_TRAVEL_QUESTIONS } from '../../utils/constants/app_constants';
+import TravelPlanDisplay from './TravelPlanDisplay';
+import ThemeToggle from '../../components/ui/ThemeToggle';
+import { travelQuerySchema } from '../../utils/validation/schema';
+
+interface ValidationError {
+    field: string;
+    message: string;
+}
+
+interface ApiError {
+    status: string | number;
+    data: string;
+}
+
+const TravelPlannerHome: React.FC = () => {
+    const [question, setQuestion] = useState('');
+    const [sendAsEmail, setSendAsEmail] = useState(false);
+    const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
+    const [getTravelPlan, { data, error, isLoading, reset }] = useGetTravelPlanMutation();
+    const [sendEmail, { isLoading: isSendingEmail, isSuccess: isEmailSent, isError: isEmailError }] = useSendEmailMutation();
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setValidationErrors([]);
+
+        const validationResult = travelQuerySchema.safeParse({ question: question.trim() });
+
+        if (!validationResult.success) {
+            const formattedErrors = validationResult.error.errors.map((err) => ({
+                field: err.path[0].toString(),
+                message: err.message,
+            }));
+            setValidationErrors(formattedErrors);
+            return;
+        }
+
+        try {
+            const travelPlanData = await getTravelPlan({
+                question: validationResult.data.question,
+            }).unwrap();
+
+            if (sendAsEmail && travelPlanData) {
+                console.log('📧 Triggering email delivery...');
+                await sendEmail({
+                    email: ['test@example.com'], // Replace with actual user email
+                    subject: 'Your AI-Generated Travel Plan',
+                    body: travelPlanData.answer,
+                }).unwrap();
+            }
+        } catch (err) {
+            console.error('Error in handleSubmit:', err);
+            const apiError = err as ApiError;
+            if (apiError.status === 'VALIDATION_ERROR') {
+                setValidationErrors([{ field: 'question', message: apiError.data }]);
+            }
+        }
+    };
+
+    const handleExampleClick = (exampleQuestion: string) => {
+        setQuestion(exampleQuestion);
+        setValidationErrors([]); // Clear any existing errors
+    };
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        setQuestion(value);
+
+        if (validationErrors.length > 0 && value.trim()) {
+            setValidationErrors([]);
+        }
+    };
+
+    const handleEmailToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setSendAsEmail(e.target.checked);
+    };
+
+    const handleReset = () => {
+        setQuestion('');
+        setSendAsEmail(false);
+        setValidationErrors([]);
+        reset();
+    };
+
+    const hasValidationErrors = validationErrors.length > 0;
+    const questionError = validationErrors.find(err => err.field === 'question');
+
+    return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 transition-colors duration-200">
+            {/* Header */}
+            <header className="bg-white dark:bg-gray-900 shadow-sm border-b border-gray-200 dark:border-gray-700 transition-colors duration-200">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                            <div className="w-10 h-10 bg-indigo-600 dark:bg-indigo-500 rounded-lg flex items-center justify-center transition-colors duration-200">
+                                <MapPin className="w-6 h-6 text-white" />
+                            </div>
+                            <h1 className="text-2xl font-bold text-gray-900 dark:text-white transition-colors duration-200">EasyAI Itinerary</h1>
+                        </div>
+                        <ThemeToggle size="md" />
+                    </div>
+                </div>
+            </header>
+
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {!data ? (
+                    <>
+                        {/* Hero, Features, Form... */}
+                        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8 mb-8 border border-gray-100 dark:border-gray-700 transition-colors duration-200">
+                            <form onSubmit={handleSubmit} className="space-y-6">
+                                <div>
+                                    <label htmlFor="travel-question" className="block text-lg font-medium text-gray-900 dark:text-white mb-3 transition-colors duration-200">
+                                        Where would you like to go?
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            id="travel-question"
+                                            type="text"
+                                            value={question}
+                                            onChange={handleInputChange}
+                                            placeholder="e.g., Plan a 7-day romantic trip to Italy"
+                                            className={`w-full px-6 py-4 pr-16 text-lg border rounded-xl focus:outline-none focus:ring-2 focus:border-transparent transition-colors duration-200
+                                                bg-white dark:bg-gray-700 
+                                                text-gray-900 dark:text-white 
+                                                placeholder-gray-500 dark:placeholder-gray-400
+                                                ${questionError
+                                                    ? 'border-red-300 dark:border-red-600 focus:ring-red-500'
+                                                    : 'border-gray-300 dark:border-gray-600 focus:ring-indigo-500'
+                                                }`}
+                                            disabled={isLoading || isSendingEmail}
+                                            aria-invalid={hasValidationErrors}
+                                            aria-describedby={questionError ? 'question-error' : undefined}
+                                        />
+                                        <button
+                                            type="submit"
+                                            disabled={isLoading || isSendingEmail || !question.trim()}
+                                            className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white p-3 rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {isLoading || isSendingEmail ? (
+                                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                            ) : (
+                                                <Send className="w-5 h-5" />
+                                            )}
+                                        </button>
+                                    </div>
+
+                                    {questionError && (
+                                        <div id="question-error" className="mt-2 flex items-center space-x-2 text-red-600 dark:text-red-400 transition-colors duration-200">
+                                            <AlertCircle className="w-4 h-4" />
+                                            <span className="text-sm">{questionError.message}</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl border border-gray-200 dark:border-gray-600 transition-colors duration-200">
+                                    <div className="flex items-center space-x-3">
+                                        <input
+                                            id="send-as-email"
+                                            type="checkbox"
+                                            checked={sendAsEmail}
+                                            onChange={handleEmailToggle}
+                                            disabled={isLoading || isSendingEmail}
+                                            className="w-5 h-5 text-indigo-600 bg-white dark:bg-gray-600 border-gray-300 dark:border-gray-500 rounded focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:ring-2 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        />
+                                        <label
+                                            htmlFor="send-as-email"
+                                            className="flex items-center space-x-2 text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer transition-colors duration-200"
+                                        >
+                                            <Mail className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                                            <span>Send travel plan to my email</span>
+                                        </label>
+                                    </div>
+                                    {sendAsEmail && (
+                                        <div className="flex items-center space-x-2 text-xs text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-3 py-1 rounded-full">
+                                            <div className="w-2 h-2 bg-indigo-600 dark:bg-indigo-400 rounded-full animate-pulse"></div>
+                                            <span>Email enabled</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </form>
+
+                            <div className="mt-6">
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 transition-colors duration-200">Try these examples:</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {EXAMPLE_TRAVEL_QUESTIONS.map((example, index) => (
+                                        <button
+                                            key={index}
+                                            onClick={() => handleExampleClick(example)}
+                                            disabled={isLoading || isSendingEmail}
+                                            className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-sm hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200 flex items-center space-x-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            <span>{example}</span>
+                                            <ArrowRight className="w-3 h-3" />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {(isLoading || isSendingEmail) && (
+                            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-12 text-center border border-gray-100 dark:border-gray-700 transition-colors duration-200">
+                                <div className="w-16 h-16 border-4 border-indigo-600 dark:border-indigo-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2 transition-colors duration-200">
+                                    {isSendingEmail ? 'Sending Email...' : 'Creating Your Perfect Trip'}
+                                </h3>
+                                <p className="text-gray-600 dark:text-gray-300 transition-colors duration-200">
+                                    {isSendingEmail
+                                        ? 'Your travel plan is being sent to your email.'
+                                        : 'Our AI is analyzing destinations, costs, and creating your personalized itinerary...'}
+                                </p>
+                            </div>
+                        )}
+
+                        {(error || isEmailError) && (
+                            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl p-6 text-center transition-colors duration-200">
+                                <div className="w-12 h-12 bg-red-100 dark:bg-red-900/40 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <AlertCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
+                                </div>
+                                <h3 className="text-lg font-semibold text-red-900 dark:text-red-300 mb-2 transition-colors duration-200">Something went wrong</h3>
+                                <p className="text-red-700 dark:text-red-400 transition-colors duration-200">
+                                    {isEmailError ? 'Failed to send email. Please try again.' :
+                                        (error && typeof error === 'object' && 'data' in error
+                                            ? String((error as ApiError).data)
+                                            : 'We couldn\'t generate your travel plan. Please try again.')
+                                    }
+                                </p>
+                                <button
+                                    onClick={handleReset}
+                                    className="mt-4 px-4 py-2 bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600 text-white rounded-lg transition-colors duration-200"
+                                >
+                                    Try Again
+                                </button>
+                            </div>
+                        )}
+
+                        {isEmailSent && !data && (
+                            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-2xl p-6 text-center transition-colors duration-200">
+                                <div className="w-12 h-12 bg-green-100 dark:bg-green-900/40 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <Mail className="w-6 h-6 text-green-600 dark:text-green-400" />
+                                </div>
+                                <h3 className="text-lg font-semibold text-green-900 dark:text-green-300 mb-2 transition-colors duration-200">Email Sent!</h3>
+                                <p className="text-green-700 dark:text-green-400 transition-colors duration-200">
+                                    Your travel plan has been sent to your email address.
+                                </p>
+                                <button
+                                    onClick={handleReset}
+                                    className="mt-4 px-4 py-2 bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600 text-white rounded-lg transition-colors duration-200"
+                                >
+                                    Create Another Plan
+                                </button>
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    <TravelPlanDisplay
+                        data={data}
+                        onNewSearch={handleReset}
+                    />
+                )}
+            </div>
+        </div>
+    );
+};
+
+export default TravelPlannerHome;
+
+
+-- ./src/services/api/api_client.ts --
+
+
+
+-- ./src/services/api/travel/travelApi.ts --
+// src/services/api/travel/travelApi.ts
+import { createApi, fetchBaseQuery, type FetchBaseQueryError } from "@reduxjs/toolkit/query/react";
+import { ApiConstants } from "../../../utils/constants/api_constants";
+import { travelResponseSchema, type TravelQuery, type TravelResponse } from "../../../utils/validation/schema";
+
+// Travel API definition with Zod validation
+export const travelApi = createApi({
+    reducerPath: "travelApi",
+    baseQuery: fetchBaseQuery({
+        baseUrl: ApiConstants.TRAVEL_API_BASE_URL,
+        prepareHeaders: (headers) => {
+            // Add ngrok bypass header to avoid browser warning
+            headers.set('ngrok-skip-browser-warning', 'true');
+            headers.set('Content-Type', 'application/json');
+            return headers;
+        },
+    }),
+    tagTypes: ['TravelPlan'],
+    endpoints: (builder) => ({
+        getTravelPlan: builder.mutation<TravelResponse, TravelQuery>({
+            query: (travelQuery) => {
+                return {
+                    url: ApiConstants.TRAVEL_QUERY_ENDPOINT,
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "ngrok-skip-browser-warning": "true"
+                    },
+                    body: JSON.stringify({
+                        ...travelQuery,
+                        question: travelQuery.question + " Don't use *,#@,%,^,&,() characters in the response. make headings bold and use bullet points for lists."
+                    }),
+                };
+            },
+            transformResponse: (response: TravelResponse): TravelResponse => {
+                // Validate the response with Zod
+                const validation = travelResponseSchema.safeParse(response);
+                if (!validation.success) {
+                    console.error("API Response Validation Error:", validation.error.flatten());
+                    throw new Error('Invalid response structure from server');
+                }
+                return validation.data;
+            },
+            transformErrorResponse: (response: FetchBaseQueryError) => { // Use FetchBaseQueryError type
+                console.error('Travel API Error:', response);
+
+                // Access status and data based on FetchBaseQueryError structure
+                const status = 'status' in response ? response.status : 'UNKNOWN_STATUS';
+                const data = 'data' in response ? response.data : 'An unexpected error occurred';
+
+                const errorMessage = typeof data === 'string'
+                    ? data
+                    : 'An unexpected error occurred';
+
+
+                return {
+                    status: status,
+                    data: errorMessage
+                };
+            },
+            invalidatesTags: ['TravelPlan'],
+        }),
+    }),
+});
+
+// Export the hook
+export const { useGetTravelPlanMutation } = travelApi;
+
+
+-- ./src/services/api/email/emailApi.ts --
+// src/services/api/email/emailApi.ts
+import { createApi, fetchBaseQuery, type FetchBaseQueryError } from "@reduxjs/toolkit/query/react";
+import { ApiConstants } from "../../../utils/constants/api_constants";
+import { sendEmailSchema, type SendEmail } from "../../../utils/validation/schema";
+
+export const emailApi = createApi({
+    reducerPath: "emailApi",
+    baseQuery: fetchBaseQuery({
+        baseUrl: ApiConstants.TRAVEL_API_BASE_URL, // Assuming the same base URL for email
+        prepareHeaders: (headers) => {
+            headers.set('ngrok-skip-browser-warning', 'true');
+            headers.set('Content-Type', 'application/json');
+            return headers;
+        },
+    }),
+    tagTypes: ['Email'],
+    endpoints: (builder) => ({
+        sendEmail: builder.mutation<{ message: string }, SendEmail>({
+            query: (emailData) => ({
+                url: ApiConstants.SEND_EMAIL_ENDPOINT,
+                method: "POST",
+                body: emailData,
+            }),
+            transformErrorResponse: (response: FetchBaseQueryError) => {
+                console.error('Email API Error:', response);
+                const status = 'status' in response ? response.status : 'UNKNOWN_STATUS';
+                const data = 'data' in response ? response.data : 'An unexpected error occurred';
+                const errorMessage = typeof data === 'string' ? data : 'An unexpected error occurred';
+                return {
+                    status: status,
+                    data: errorMessage
+                };
+            },
+        }),
+    }),
+});
+
+export const { useSendEmailMutation } = emailApi;
+
+
