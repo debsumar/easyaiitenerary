@@ -1,10 +1,10 @@
 // src/app/App.tsx
 import { useEffect } from 'react';
-import { Route, Routes } from 'react-router-dom';
 import TravelPlannerHome from '../pages/travel/TravelPlannerHome';
 import '../styles/App.css';
 import { useAppDispatch, useAppSelector } from './store/hooks';
 import { initializeTheme, selectIsDark } from '../features/theme/themeSlice';
+import { Route, Routes } from 'react-router';
 
 function App() {
   const dispatch = useAppDispatch();
